@@ -1,156 +1,49 @@
-name: Build and Release
+name: Build Tauri App (Windows)
 
 on:
   push:
+    branches:
+      - main  # Change to your default branch name if it's not 'main'
     tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag_or_branch:
-        description: 'Tag, branch, or commit SHA to build'
-        required: false
-        default: ''
-        type: string
-      skip_release:
-        description: 'Skip creating GitHub release?'
-        required: false
-        default: false
-        type: boolean
-
-env:
-  PROJECT_NAME: ${{ github.event.repository.name }}
-
-permissions:
-  contents: write
+      - 'v*'  # Triggers when you push a tag like v1.0.0
+  workflow_dispatch: # Allows you to run this manually
 
 jobs:
-  validate-input:
-    name: Validate Input
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    outputs:
-      ref_to_use: ${{ steps.validate.outputs.ref_to_use }}
-      should_checkout: ${{ steps.validate.outputs.should_checkout }}
-    
-    steps:
-      - name: Validate ref input
-        id: validate
-        run: |
-          if [ -z "${{ github.event.inputs.tag_or_branch }}" ]; then
-            echo "No ref provided, will use default branch"
-            echo "ref_to_use=" >> $GITHUB_OUTPUT
-            echo "should_checkout=true" >> $GITHUB_OUTPUT
-          else
-            echo "Will checkout: ${{ github.event.inputs.tag_or_branch }}"
-            echo "ref_to_use=${{ github.event.inputs.tag_or_branch }}" >> $GITHUB_OUTPUT
-            echo "should_checkout=true" >> $GITHUB_OUTPUT
-          fi
-
-  build:
-    name: Build on ${{ matrix.os }} (${{ matrix.target }})
-    needs: validate-input
-    if: needs.validate-input.outputs.should_checkout == 'true'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
+  build-windows:
+    runs-on: windows-latest
 
     steps:
+      # 1. Clean Checkout (Fixes your "git fetch 1*" error)
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.validate-input.outputs.ref_to_use }}
 
-      - name: Cache Rust dependencies
+      # 2. Setup Node.js (Required for Tauri frontend)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm' # Change to 'yarn' or 'pnpm' if using those
+
+      # 3. Setup Rust (Required for Tauri backend)
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
+      # 4. Install Dependencies
+      - name: Install Frontend Dependencies
+        run: npm install
 
-      - name: Build binary
-        run: cargo build --verbose --release --target ${{ matrix.target }}
-        env:
-          RUST_BACKTRACE: 1
-
-      - name: Strip binary (macOS & Linux)
-        if: runner.os != 'Windows'
-        run: strip "target/${{ matrix.target }}/release/${{ env.PROJECT_NAME }}"
-
-      - name: Package artifact
-        shell: bash
-        run: |
-          staging_dir="staging"
-          mkdir -p "${staging_dir}"
-          
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            binary_name="${{ env.PROJECT_NAME }}.exe"
-            archive_name="${{ env.PROJECT_NAME }}-${{ matrix.target }}.zip"
-            cp "target/${{ matrix.target }}/release/${binary_name}" "${staging_dir}/"
-            cd "${staging_dir}"
-            7z a "../${archive_name}" .
-            cd ..
-          else
-            binary_name="${{ env.PROJECT_NAME }}"
-            archive_name="${{ env.PROJECT_NAME }}-${{ matrix.target }}.tar.gz"
-            cp "target/${{ matrix.target }}/release/${binary_name}" "${staging_dir}/"
-            tar -czvf "${archive_name}" -C "${staging_dir}" .
-          fi
-          
-          echo "ARCHIVE_PATH=${archive_name}" >> $GITHUB_ENV
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PROJECT_NAME }}-${{ matrix.target }}
-          path: ${{ env.ARCHIVE_PATH }}
-          if-no-files-found: error
-
-  release:
-    name: Create GitHub Release
-    needs: [validate-input, build]
-    if: |
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && !github.event.inputs.skip_release && needs.validate-input.outputs.ref_to_use != '')
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Determine release tag
-        id: get_tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "TAG_NAME=${{ github.event.inputs.tag_or_branch }}" >> $GITHUB_OUTPUT
-          else
-            echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-          echo "Should create release for: ${{ steps.get_tag.outputs.TAG_NAME }}"
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          tag_name: ${{ steps.get_tag.outputs.TAG_NAME }}
-          name: Release ${{ steps.get_tag.outputs.TAG_NAME }}
-          generate_release_notes: true
+      # 5. Build the Tauri App
+      - name: Build Tauri App
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # This builds the app and creates a release if triggered by a tag
+          tagName: ${{ github.ref_name }} 
+          releaseName: "Release ${{ github.ref_name }}"
+          releaseBody: "Automated build for Windows."
+          releaseDraft: true
+          prerelease: false
