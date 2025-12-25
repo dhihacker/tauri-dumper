@@ -1,9 +1,23 @@
-name: Build and Releases
+name: Build and Release
 
 on:
+  # Automatically run when pushing tags
   push:
     tags:
       - 'v*'
+  
+  # Allow manual triggering from GitHub UI (adds the "Run workflow" button)
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+      skip_release:
+        description: 'Skip creating GitHub release?'
+        required: false
+        type: boolean
+        default: false
 
 env:
   PROJECT_NAME: ${{ github.event.repository.name }}
@@ -35,6 +49,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # For manual runs, use the specified tag if provided
+        with:
+          ref: ${{ github.event.inputs.version_tag || github.ref }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -89,6 +106,8 @@ jobs:
   release:
     name: Create GitHub Release
     needs: build
+    # Only run release job if not skipped in manual trigger
+    if: ${{ !github.event.inputs.skip_release }}
     runs-on: ubuntu-latest
     
     steps:
@@ -97,9 +116,19 @@ jobs:
         with:
           path: artifacts/
 
+      - name: Determine release tag name
+        id: get_tag
+        run: |
+          if [ -n "${{ github.event.inputs.version_tag }}" ]; then
+            echo "TAG_NAME=${{ github.event.inputs.version_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.get_tag.outputs.TAG_NAME }}
+          name: Release ${{ steps.get_tag.outputs.TAG_NAME }}
           generate_release_notes: true
