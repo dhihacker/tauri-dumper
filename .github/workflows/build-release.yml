@@ -13,35 +13,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Setup Node without strict lockfile caching
+      # This step helps us see where your package.json actually is
+      - name: List files for debugging
+        run: dir -Recurse -Filter package.json
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
 
-      # 2. Install Rust
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
 
-      # 3. Cache Rust dependencies (Crucial for Windows build speed)
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      # 4. Install Frontend Deps
       - name: Install Frontend Dependencies
-        run: npm install
+        # REPLACE 'src-ui' with your actual folder name (e.g., frontend, ui, etc.)
+        # If your package.json is in the root, just use "npm install"
+        run: |
+          if (Test-Path "src-ui") { cd src-ui; npm install }
+          elseif (Test-Path "frontend") { cd frontend; npm install }
+          else { npm install }
 
-      # 5. Build Tauri App
-      # Note: 'tagName' is set to a placeholder because 'github.ref_name' 
-      # is just 'main' on a push, and tauri-action expects a version tag.
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__ # Placeholder, will use version from package.json
-          releaseName: "Tauri Dumper v__VERSION__"
+          tagName: v__VERSION__
+          releaseName: "Release v__VERSION__"
           releaseDraft: true
           prerelease: false
