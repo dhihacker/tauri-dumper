@@ -2,48 +2,37 @@ name: Build Tauri App (Windows)
 
 on:
   push:
-    branches:
-      - main  # Change to your default branch name if it's not 'main'
-    tags:
-      - 'v*'  # Triggers when you push a tag like v1.0.0
-  workflow_dispatch: # Allows you to run this manually
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
-      # 1. Clean Checkout (Fixes your "git fetch 1*" error)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Setup Node.js (Required for Tauri frontend)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'npm' # Change to 'yarn' or 'pnpm' if using those
+          # REMOVED: cache: 'npm' (This was causing the error)
 
-      # 3. Setup Rust (Required for Tauri backend)
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      # 4. Install Dependencies
       - name: Install Frontend Dependencies
+        # If your package.json is in a subfolder, 
+        # change this to: cd subfolder && npm install
         run: npm install
 
-      # 5. Build the Tauri App
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # This builds the app and creates a release if triggered by a tag
           tagName: ${{ github.ref_name }} 
           releaseName: "Release ${{ github.ref_name }}"
-          releaseBody: "Automated build for Windows."
           releaseDraft: true
           prerelease: false
