@@ -13,26 +13,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 1. Setup Node without strict lockfile caching
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          # REMOVED: cache: 'npm' (This was causing the error)
 
+      # 2. Install Rust
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
+      # 3. Cache Rust dependencies (Crucial for Windows build speed)
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      # 4. Install Frontend Deps
       - name: Install Frontend Dependencies
-        # If your package.json is in a subfolder, 
-        # change this to: cd subfolder && npm install
         run: npm install
 
+      # 5. Build Tauri App
+      # Note: 'tagName' is set to a placeholder because 'github.ref_name' 
+      # is just 'main' on a push, and tauri-action expects a version tag.
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }} 
-          releaseName: "Release ${{ github.ref_name }}"
+          tagName: v__VERSION__ # Placeholder, will use version from package.json
+          releaseName: "Tauri Dumper v__VERSION__"
           releaseDraft: true
           prerelease: false
